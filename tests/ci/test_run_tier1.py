@@ -10,6 +10,9 @@ from subprocess import CompletedProcess
 
 import pytest
 
+from skillevaluator.models import Finding, ValidationResult
+from skillevaluator.reporting.json_reporter import JSONReporter
+
 MODULE_PATH = Path(__file__).parents[2] / "ci" / "run_tier1.py"
 SPEC = importlib.util.spec_from_file_location("ci_run_tier1", MODULE_PATH)
 runner = importlib.util.module_from_spec(SPEC)
@@ -24,16 +27,28 @@ def skill(workspace, path):
 
 
 def payload(passed=True, status="passed", incomplete=None):
-    return {
-        "overall_passed": passed,
-        "overall_status": status,
-        "incomplete_scans": incomplete or [],
-        "total_validators": 12,
-        "total_errors": 0 if passed else 1,
-        "total_warnings": 0,
-        "severity_counts": {"critical": 0, "high": 0 if passed else 1, "medium": 0, "low": 0},
-        "results": [{"passed": passed, "status": status} for _ in range(12)],
-    }
+    results = [
+        ValidationResult(
+            validator_name=f"Tier 1 fixture validator {index + 1}",
+            validator_description="Controlled CI process result fixture",
+        )
+        for index in range(12)
+    ]
+    for result in results:
+        result.metadata["gating"] = {"tier": 1, "blocking": True}
+    if not passed:
+        results[0].add_finding(
+            Finding(
+                category="SCHEMA",
+                severity="high",
+                check_name="fixture_failure",
+                message="Fixture validation failed",
+                file_path="SKILL.md",
+            )
+        )
+    if status == "incomplete":
+        results[0].metadata["incomplete_scans"] = incomplete or ["semgrep"]
+    return json.loads(JSONReporter(include_timestamp=False).render_all(results))
 
 
 def fake_cli(responses, calls):

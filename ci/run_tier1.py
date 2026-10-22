@@ -19,9 +19,9 @@ import subprocess
 from pathlib import Path
 
 try:
-    from report_views import render_reports
+    from native_reports import render_native_reports
 except ModuleNotFoundError:
-    from ci.report_views import render_reports
+    from ci.native_reports import render_native_reports
 
 MAX_SKILLS = 100
 MAX_REPORT_BYTES = 32 * 1024 * 1024
@@ -159,6 +159,9 @@ def _load_report(path: Path) -> dict:
         type(counts.get(name)) is not int or counts[name] < 0 for name in ("critical", "high", "medium", "low")
     ):
         raise ValueError("The evaluator JSON report has invalid severity counts.")
+    from skillevaluator.reporting.retained import retained_results
+
+    retained_results(data)
     return data
 
 
@@ -194,7 +197,7 @@ def _summary(skills: list[dict], error: str | None = None) -> dict:
 
 def _write_summary(reports: Path, summary: dict) -> None:
     _write_json(reports / "summary.json", summary)
-    render_reports(reports, summary, summary.get("execution", {}))
+    render_native_reports(reports, summary, summary.get("execution", {}))
 
 
 def annotation_text(value: str, *, property_value: bool = False) -> str:

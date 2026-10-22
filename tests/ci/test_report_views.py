@@ -284,7 +284,7 @@ def test_generated_markdown_tables_parse_with_github_table_rules(tmp_path):
     assert "<td>Code risk</td>" in summary_html
 
 
-def test_hosted_markdown_uses_only_published_index_and_json(tmp_path):
+def test_hosted_markdown_uses_published_native_html_index_and_json(tmp_path):
     from markdown_it import MarkdownIt
 
     summary, _ = example(tmp_path)
@@ -304,12 +304,18 @@ def test_hosted_markdown_uses_only_published_index_and_json(tmp_path):
     urls = [child.attrGet("href") for token in tokens for child in token.children or [] if child.type == "link_open"]
     assert base + "/index.html#skill-001" in urls
     assert base + "/skill-001/skillevaluator-tier1.json" in urls
+    assert base + "/skill-001/skillevaluator-tier1.html" in urls
     assert all(
-        url in {base + "/index.html", base + "/index.html#skill-001", base + "/skill-001/skillevaluator-tier1.json"}
+        url
+        in {
+            base + "/index.html",
+            base + "/index.html#skill-001",
+            base + "/skill-001/skillevaluator-tier1.json",
+            base + "/skill-001/skillevaluator-tier1.html",
+        }
         for url in urls
     )
     for filename in [
-        "skillevaluator-tier1.html",
         "skillevaluator-tier1.md",
         "skillevaluator-tier1.sarif.json",
         "stdout.log",

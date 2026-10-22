@@ -157,10 +157,10 @@ def _links(
         ("stdout log", "stdout.log"),
         ("stderr log", "stderr.log"),
     ]
-    # The trusted hosted site republishes only validated JSON plus this index.
-    # Original HTML, Markdown, SARIF and logs remain download-artifact links.
+    # Hosted HTML is regenerated from validated JSON using trusted templates.
+    # Original Markdown, SARIF and logs remain download-artifact links.
     if report_url:
-        choices = [("JSON", "skillevaluator-tier1.json")]
+        choices = [("Native HTML", "skillevaluator-tier1.html"), ("JSON", "skillevaluator-tier1.json")]
     links = [("Skill details", f"{report_url.rstrip('/')}/index.html#{anchor}")] if report_url and anchor else []
     for label, name in choices:
         path = directory / name

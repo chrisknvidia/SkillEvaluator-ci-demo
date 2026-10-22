@@ -53,9 +53,13 @@ The consumer runs on pull-request changes, pushes to `main`, and manual
   outcome. Failed checks include recorded reasons, locations, and suggested
   fixes; annotations highlight a bounded set of actionable failures. Full
   scanner stdout/stderr remains in the downloadable artifact.
-- **Hosted HTML:** a self-contained index includes scores, a **Needs attention**
-  section, expandable per-skill check tables, exact findings, and supporting
-  evidence. CI run conclusion is shown separately from the scanner verdict.
+- **Hosted HTML:** a compact skill index links to SkillEvaluator's native HTML
+  report for each skill. The native report shows the outcome first, then fixes,
+  quality dimensions, searchable findings and supporting evidence. Quality
+  scores, scan verdicts and execution completeness are separate. Inapplicable
+  checks are labeled N/A. Reports support mobile screens, keyboard navigation,
+  dark mode, offline viewing and print; JSON downloads preserve the original
+  retained evidence. CI conclusion and runtime identity live in Run details.
 
 The configured report site is
 [the consumer report history](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/).
@@ -70,8 +74,11 @@ Hosted publication and automatic bot-comment updates have been exercised with
 real GitHub Actions runs in the consumer demo. Publication follows scan completion;
 while a new report is pending,
 open a run's **skill-evaluator-tier1** artifact and read `index.html` locally.
-The trusted publisher rebuilds HTML from validated JSON and does not execute
-PR content or reuse artifact-supplied HTML as trusted site content.
+The trusted publisher installs the pinned evaluator's frozen base dependencies
+and rebuilds native HTML from validated JSON. It does not execute PR content or
+reuse artifact-supplied HTML as trusted site content. Published Tier 1 reports
+have no external scripts or fonts; a content policy permits only the renderer's
+exact inline scripts and controls.
 
 ## Optional hosted reports and PR feedback setup
 

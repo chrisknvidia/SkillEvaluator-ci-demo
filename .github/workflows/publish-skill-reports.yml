@@ -40,6 +40,11 @@ jobs:
           ref: 2b60950940f5edd06f2c1fa5c9a27df78259198d
           path: publisher
           persist-credentials: false
+      - name: Install the trusted native report renderer
+        working-directory: publisher
+        run: |
+          python3 -m pip install uv==0.11.27
+          uv sync --frozen --no-dev --no-editable
       - name: Checkout retained report history
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -60,7 +65,7 @@ jobs:
           # Rebuild against the newest history after a concurrent writer wins.
           # Every run is retained; a busy deployment cannot discard its report.
           for attempt in 1 2 3 4 5; do
-            python3 publisher/ci/publish_reports.py
+            publisher/.venv/bin/python publisher/ci/publish_reports.py
             git -C site add .
             if git -C site diff --cached --quiet; then
               break
