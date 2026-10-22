@@ -1,5 +1,66 @@
 # Live CI verification — 2026-10-22 UTC
 
+## Reporting follow-up: verified live
+
+The reporting extension was tested with a rebuilt public image and fresh consumer
+runs. It provides detailed GitHub summaries, failed-check annotations, hosted
+HTML, retained run history, and an automatically updated PR comment.
+
+- Image source: `2b60950940f5edd06f2c1fa5c9a27df78259198d`.
+- [Successful image publication](https://github.com/chrisknvidia/SkillEvaluator-ci-demo/actions/runs/39737144453).
+- Image: `ghcr.io/chrisknvidia/skillevaluator-ci-demo@sha256:88047c35d1625325bb55fedef5953ff1caabe56383c2fa780a9bfa933d1752e4`.
+- Reusable scan and publisher workflows: `5e3bb8b6af563c8069d9fcee2bfffe54bfa7731e`.
+- Main commit: `9226a6a200b7d7adea558f8b817ffb5abbd9eeda`.
+- PR commit: `bb8bd8130f99b20409f5148125adc18ea2af5de5`.
+
+| Case | Inspected result | Evidence |
+| --- | --- | --- |
+| Main scan | 5/5 pass, 60 validator rows, 0 errors, 16 warnings; each skill scores 98.2/A | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39737381283), [report](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/runs/39737381283/1/) |
+| PR scan | 5 pass, 1 fail, 72 validator rows, 2 errors; invalid skill scores 71.8/C | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39737400072), [report](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/runs/39737400072/1/) |
+| Missing path | Configuration ERROR; zero validators; JSON, HTML and Markdown retained | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39736600644) |
+| Missing LLM key | Configuration ERROR; zero validators; requested LLM mode recorded | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39736604141) |
+| Main publication | History preparation and Pages deployment succeeded | [Publisher](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39737572513) |
+| PR publication | History, Pages and automatic comment update succeeded | [Publisher](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39737599230) |
+
+The [same bot comment](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/pull/1#issuecomment-6334583529)
+was updated across PR commits: its identity stayed `6334583529`, exactly one marked
+bot comment exists, and its current body identifies the final PR commit and run.
+GitHub's returned rendered HTML contains a real six-row score table and readable
+failure messages. Actual check annotations include both malformed-name failures,
+the affected file and suggested fixes. No source line is invented when absent.
+
+The real downloaded summaries were rendered by GitHub's Markdown API: 11 tables
+for main and 13 for the PR, with readable findings and links only to published
+files. JSON, HTML, Markdown and hosted receipt metadata agree on verdicts,
+commits and runtime digest. The public site retains reports independently of the
+14-day workflow artifact lifetime. [History](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/),
+[latest main](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/main/latest/)
+and [PR #1](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/pr/1/)
+provide browser entry points; each run/attempt has its own retained URL.
+Historical runs were backfilled without replacing current aliases.
+
+An independent edge-case and output-correctness review passed after fixes;
+129 focused CI helper tests, Ruff, workflow validation and real GitHub rendering
+checks passed. The first live output review caught broken Markdown table spacing,
+escaped quote entities and links to files absent from hosted publication. Those
+were fixed, rebuilt and verified through the fresh runs above. A subsequent
+real-browser check found long runtime metadata overflowing narrow screens; the
+CSS wrapping fix was verified using actual reports at 320, 390, 768 and 1440 pixels.
+The two configuration-error tests used the preceding `6dbc7db` image, whose only
+subsequent renderer change was that CSS wrapping rule.
+
+Final hosted browser verification confirmed that both stable aliases resolve to
+the exact final runs above. Desktop (1440px), mobile (390px), and expanded failure
+details fit the viewport. All 13 unique report and JSON links returned HTTP 200;
+there were no page JavaScript errors. The history includes both final runs.
+
+Scope remains no-LLM Tier 1. Real credentialed LLM success, Tier 2, Tier 3 and
+fork-origin PR publication were not tested. Missing-key rejection is not proof
+of model-backed analysis. The older verification below records the initial
+runtime, before this reporting extension.
+
+## Initial runtime verification
+
 The complete no-LLM Tier 1 workflow was executed by a separate GitHub repository.
 The evidence below includes downloaded and inspected reports, not only workflow
 status. This is an experimental personal fork, not an official NVIDIA release.
