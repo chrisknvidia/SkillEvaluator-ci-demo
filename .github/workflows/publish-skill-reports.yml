@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: chrisknvidia/SkillEvaluator-ci-demo
-          ref: 0d12591feb18005928ad251b6e85b0163a8e50c2
+          ref: 2b60950940f5edd06f2c1fa5c9a27df78259198d
           path: publisher
           persist-credentials: false
       - name: Checkout retained report history
@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: chrisknvidia/SkillEvaluator-ci-demo
-          ref: 0d12591feb18005928ad251b6e85b0163a8e50c2
+          ref: 2b60950940f5edd06f2c1fa5c9a27df78259198d
           path: publisher
           persist-credentials: false
       - name: Download this publication's feedback
