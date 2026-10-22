@@ -1,5 +1,52 @@
 # Live CI verification — 2026-10-22 UTC
 
+## Native HTML redesign: verified live
+
+The consumer now uses SkillEvaluator's native HTML reports, with a small
+multi-skill index linking to each report. The design includes a clear outcome,
+actionable findings, separate quality scores, search and combined filters,
+keyboard controls, dark mode, mobile layouts, offline evidence and print.
+N/A and incomplete outcomes remain distinct from successful execution.
+The original JSON evidence and all gating semantics are preserved.
+
+- Image source: `29734ecaa6d905f6026f59e1f91115aee24a0ac6`.
+- [Successful image publication](https://github.com/chrisknvidia/SkillEvaluator-ci-demo/actions/runs/39844001501).
+- Image: `ghcr.io/chrisknvidia/skillevaluator-ci-demo@sha256:9a8a1300d636a941ab1f718dc4decac99988b1331de2f8e5c0473ca22f2024bb`.
+- Reusable workflows: `48cceecb6533d6d3ec785b0e62c45f0a74a9d5ec`.
+- Main commit: `f040cc83dae10db93f41f0ab769b2e8e909f6cb3`.
+- PR commit: `0a2ab6e1d76ff258a734ebd5ec3fa3ace6575c61`.
+
+| Case | Inspected result | Evidence |
+| --- | --- | --- |
+| Main scan | 5/5 pass; 60 validator rows; 0 errors; quality 98.2/A each | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39844363192), [report](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/runs/39844363192/1/) |
+| Invalid-skill PR | 5 pass, 1 fail; 72 rows; 2 errors; invalid skill 71.8/C | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39844380707), [native failure report](https://chrisknvidia.github.io/skill-evaluator-consumer-demo/runs/39844380707/1/skill-004/skillevaluator-tier1.html) |
+| Missing path | Configuration ERROR, zero checks, readable retained report | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39844374811) |
+| Missing LLM key | Configuration ERROR, zero checks, explicit missing-key reason | [Run](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39844379119) |
+| Main publication | Native rendering, history and Pages deployment succeeded | [Publisher](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39844590015) |
+| PR publication | Native rendering, Pages and comment update succeeded | [Publisher](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/actions/runs/39844640613) |
+
+The same [bot comment](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/pull/1#issuecomment-6334583529)
+now identifies the final PR commit and run. Its rendered six-row table, scores,
+two failure explanations and fixes were read back from GitHub. All 11 hosted
+per-skill JSON reports exactly match the downloaded CI data.
+
+Independent source review and hosted Chromium checks passed: index-to-report
+navigation, canonical JSON downloads, filters, keyboard controls, dark mode,
+JavaScript-disabled evidence, print, and mobile widths of 320/390 pixels.
+Published pages had no JavaScript or content-policy errors. Both stable aliases
+resolve to the final immutable runs and identify the expected commit and image.
+Hostile strings remained escaped; Tier 1 pages make no external resource requests.
+The trusted publisher regenerates HTML from bounded JSON, using pinned native
+templates and exact script/handler hashes rather than publishing artifact HTML.
+
+In an isolated environment using the frozen dependencies, **1,089 tests passed**
+and five optional Streamlit-dashboard tests were skipped. The wheel contains
+the exact native templates and adapter, and rendered a real failed report when
+imported directly. An initial broad run caught missing combined-tier gate-policy
+labels; these were restored conditionally and the complete final suite passed.
+Combined Tier 2/3 UI fixtures were also inspected in a browser. Real LLM success
+and Tier 2/3 agent execution remain outside this Tier 1 demonstration.
+
 ## Reporting follow-up: verified live
 
 The reporting extension was tested with a rebuilt public image and fresh consumer
