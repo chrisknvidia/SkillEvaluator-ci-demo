@@ -33,7 +33,9 @@ RUN skillevaluator --version && bandit --version && pip-audit --version \
     && semgrep --version && skillspector --version && gitleaks version \
     && /opt/skillspector/bin/python -c 'import yara'
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin evaluator \
-    && mkdir -p /workspace /reports && chown evaluator:evaluator /reports
+    && rm -rf /tmp/evaluator-home \
+    && mkdir -p /workspace /reports /tmp/evaluator-home \
+    && chown evaluator:evaluator /reports /tmp/evaluator-home
 USER evaluator
 WORKDIR /workspace
 ENTRYPOINT ["python", "/opt/skillevaluator/ci/run_tier1.py"]
