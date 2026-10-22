@@ -262,3 +262,107 @@ def test_ci_run_conclusion_is_separate_from_scan_result(tmp_path):
         text = (tmp_path / filename).read_text()
         assert "CI run conclusion" in text and "failure" in text
         assert "PASSED" in text
+
+
+def test_generated_markdown_tables_parse_with_github_table_rules(tmp_path):
+    from markdown_it import MarkdownIt
+
+    summary, _ = example(tmp_path)
+    views.render_reports(tmp_path, summary, {})
+    parser = MarkdownIt("commonmark").enable("table")
+    markdown = (tmp_path / "summary.md").read_text()
+    comment = (tmp_path / "pr-comment.md").read_text()
+    summary_html = parser.render(markdown)
+    comment_html = parser.render(comment)
+    # Overview, real quality dimensions, and validator outcomes are actual tables.
+    assert summary_html.count("<table>") == 3
+    assert comment_html.count("<table>") == 1
+    assert "<td>98.2</td>" in summary_html
+    assert "<td>95</td>" in summary_html
+    assert "<td>skills/sample</td>" in comment_html
+    assert "<td>98.2 / A</td>" in comment_html
+    assert "<td>Code risk</td>" in summary_html
+
+
+def test_hosted_markdown_uses_only_published_index_and_json(tmp_path):
+    from markdown_it import MarkdownIt
+
+    summary, _ = example(tmp_path)
+    directory = tmp_path / "skill-001"
+    for filename in [
+        "skillevaluator-tier1.html",
+        "skillevaluator-tier1.md",
+        "skillevaluator-tier1.sarif.json",
+        "stdout.log",
+        "stderr.log",
+    ]:
+        (directory / filename).write_text("Original artifact evidence")
+    base = "https://example.com/reports/run-1"
+    views.render_reports(tmp_path, summary, {"report_url": base})
+    markdown = (tmp_path / "summary.md").read_text()
+    tokens = MarkdownIt("commonmark").enable("table").parse(markdown)
+    urls = [child.attrGet("href") for token in tokens for child in token.children or [] if child.type == "link_open"]
+    assert base + "/index.html#skill-001" in urls
+    assert base + "/skill-001/skillevaluator-tier1.json" in urls
+    assert all(
+        url in {base + "/index.html", base + "/index.html#skill-001", base + "/skill-001/skillevaluator-tier1.json"}
+        for url in urls
+    )
+    for filename in [
+        "skillevaluator-tier1.html",
+        "skillevaluator-tier1.md",
+        "skillevaluator-tier1.sarif.json",
+        "stdout.log",
+        "stderr.log",
+    ]:
+        assert filename not in markdown
+        # The downloadable HTML index still supports local artifact navigation.
+        assert f'href="skill-001/{filename}"' in (tmp_path / "index.html").read_text()
+
+
+def test_truncated_markdown_keeps_table_boundaries_intact():
+    from markdown_it import MarkdownIt
+
+    lines = ["# Results", "| Name | Score |", "| --- | --- |"]
+    lines.extend(f"| skill-{index} | 98.2 |" for index in range(100))
+    text = views._bounded(lines, 1024, "Full report: index.html")
+    assert len(text.encode()) <= 1024
+    assert "Truncated" in text
+    assert "<table>" not in MarkdownIt("commonmark").enable("table").render(text)
+    assert "| --- |" not in text
+
+
+def test_markdown_findings_render_readable_quotes_and_preserve_entity_text(tmp_path):
+    from html.parser import HTMLParser
+
+    from markdown_it import MarkdownIt
+
+    class VisibleText(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.parts = []
+
+        def handle_data(self, data):
+            self.parts.append(data)
+
+    summary, data = example(tmp_path)
+    message = "Field 'name': invalid \"BAD NAME\"; use kebab-case & preserve <literal> text."
+    data["results"][0].update(
+        {
+            "status": "failed",
+            "passed": False,
+            "findings": [{"message": message, "check_name": "frontmatter_field", "severity": "high"}],
+        }
+    )
+    (tmp_path / "skill-001/skillevaluator-tier1.json").write_text(json.dumps(data))
+    views.render_reports(tmp_path, summary, {})
+    for filename in ["summary.md", "pr-comment.md"]:
+        markdown = (tmp_path / filename).read_text()
+        parser = VisibleText()
+        parser.feed(MarkdownIt("commonmark").enable("table").render(markdown))
+        assert message in "".join(parser.parts)
+        assert "&\\#x27;" not in markdown
+        assert "&#x27;" not in "".join(parser.parts)
+    parser = VisibleText()
+    parser.feed(MarkdownIt("commonmark").render(views._md("A & B > C < D; entity text &#x27;")))
+    assert "A & B > C < D; entity text &#x27;" in "".join(parser.parts)

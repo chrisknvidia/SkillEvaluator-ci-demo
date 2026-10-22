@@ -41,7 +41,8 @@ def _md(value: object) -> str:
     text = "".join(c if ord(c) >= 32 else " " for c in _text(value))
     # Break GitHub mention tokens while retaining readable author and finding text.
     text = text.replace("@", "@\u200b")
-    return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", html.escape(text, quote=True))
+    escaped = re.sub(r"([\\`*_{}\[\]()#+.!|~-])", r"\\\1", text)
+    return html.escape(escaped, quote=False)
 
 
 def _url(value: object) -> str | None:
@@ -143,7 +144,9 @@ def _read(directory: Path | None) -> tuple[dict, str | None]:
         return {}, "JSON report could not be read; evidence is incomplete."
 
 
-def _links(directory: Path | None, report_url: str | None = None) -> list[tuple[str, str]]:
+def _links(
+    directory: Path | None, report_url: str | None = None, *, anchor: str | None = None
+) -> list[tuple[str, str]]:
     if directory is None:
         return []
     choices = [
@@ -154,7 +157,11 @@ def _links(directory: Path | None, report_url: str | None = None) -> list[tuple[
         ("stdout log", "stdout.log"),
         ("stderr log", "stderr.log"),
     ]
-    links = []
+    # The trusted hosted site republishes only validated JSON plus this index.
+    # Original HTML, Markdown, SARIF and logs remain download-artifact links.
+    if report_url:
+        choices = [("JSON", "skillevaluator-tier1.json")]
+    links = [("Skill details", f"{report_url.rstrip('/')}/index.html#{anchor}")] if report_url and anchor else []
     for label, name in choices:
         path = directory / name
         if path.is_file() and not path.is_symlink():
@@ -219,12 +226,29 @@ def _llm_scope(models: list[dict], context: dict) -> str:
     return "LLM execution scope not recorded; no model-backed evaluation is claimed."
 
 
+def _markdown_blocks(lines: list[str]) -> list[str]:
+    """Keep each generated table contiguous and atomic under display limits."""
+    blocks = []
+    table = []
+    for line in lines:
+        if line.startswith("|"):
+            table.append(line)
+            continue
+        if table:
+            blocks.append("\n".join(table))
+            table = []
+        blocks.append(line)
+    if table:
+        blocks.append("\n".join(table))
+    return blocks
+
+
 def _bounded(blocks: list[str], limit: int, footer: str) -> str:
     reserve = len(footer.encode("utf-8")) + 160
     parts = []
     size = 0
     truncated = False
-    for block in blocks:
+    for block in _markdown_blocks(blocks):
         cost = len(block.encode("utf-8")) + 2
         if size + cost > limit - reserve:
             truncated = True
@@ -438,7 +462,7 @@ def render_reports(reports: Path, summary: dict, context: dict) -> None:
         page.append(f'<details id="{model["anchor"]}" open><summary>{_h(skill)} — validator details</summary>')
         links = _links(model["directory"])
         page.append(f"<p>{_html_links(links)}</p>")
-        block = [f"## {_md(skill)}", _md_links(_links(model["directory"], report_url))]
+        block = [f"## {_md(skill)}", _md_links(_links(model["directory"], report_url, anchor=model["anchor"]))]
         if row.get("error"):
             page.append(f"<pre>{_h(row['error'])}</pre>")
             block.append(f"Run error: {_md(row['error'])}")

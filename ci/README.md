@@ -73,6 +73,36 @@ open a run's **skill-evaluator-tier1** artifact and read `index.html` locally.
 The trusted publisher rebuilds HTML from validated JSON and does not execute
 PR content or reuse artifact-supplied HTML as trusted site content.
 
+## Optional hosted reports and PR feedback setup
+
+The base integration needs one consumer scan workflow: its run summary and
+downloadable detailed reports work without a publisher. Hosted history and PR
+comments require a second consumer workflow and this additional setup:
+
+1. In the consumer repository, enable **Settings → Pages → Source: GitHub
+   Actions**. Create a `gh-pages` branch containing `.nojekyll` and an empty
+   `history.json` array (`[]`) before the first publication. This branch retains
+   static report history; the publisher deploys it explicitly through Pages.
+2. Add the companion consumer's
+   [publisher workflow](https://github.com/chrisknvidia/skill-evaluator-consumer-demo/blob/main/.github/workflows/publish-skill-reports.yml)
+   to the consumer's default branch. Its `workflow_run` trigger follows completed
+   **Skill checks** runs, including failures. Set `report-base-url` to that
+   consumer's Pages URL; this demo uses
+   `https://chrisknvidia.github.io/skill-evaluator-consumer-demo/`.
+3. Pin the reusable publisher and evaluator workflows to reviewed commit SHAs.
+   Set `trusted-evaluator-shas` to the approved evaluator SHA allowlist and
+   `trusted-caller-blobs` to the exact approved Git blob of the consumer's
+   `.github/workflows/skill-checks.yml`. From the consumer checkout, calculate it
+   with `git hash-object .github/workflows/skill-checks.yml`. Changing that file
+   requires explicitly reviewing and approving its new blob; retain older
+   reviewed SHA/blob entries only when historical backfill needs them.
+4. Keep the scan artifact's default name, **skill-evaluator-tier1**: the publisher
+   accepts that specific artifact from approved **Skill checks** runs. Confine
+   `contents: write`, `actions: read`, `pages: write`, `id-token: write`, and
+   `pull-requests: write` to the separate publisher workflow. Its reusable jobs
+   scope these permissions to history preparation, Pages deployment, and bot
+   feedback respectively; the scan workflow keeps `contents: read`.
+
 ## Optional LLM checks
 
 The default is `llm: false`, with no provider credential required. To add LLM
