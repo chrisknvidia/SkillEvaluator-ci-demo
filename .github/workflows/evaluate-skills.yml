@@ -42,13 +42,13 @@ jobs:
           persist-credentials: false
       - name: Pull the published image without registry credentials
         env:
-          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo@sha256:03d6ec519a75ab3b87cfcaa978568e1990f6299987051278b5f047302a308e96
+          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo@sha256:9a8a1300d636a941ab1f718dc4decac99988b1331de2f8e5c0473ca22f2024bb
         run: |
           mkdir -p "$RUNNER_TEMP/anonymous-docker-config"
           docker --config "$RUNNER_TEMP/anonymous-docker-config" pull "$IMAGE"
       - name: Evaluate every discovered skill
         env:
-          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo@sha256:03d6ec519a75ab3b87cfcaa978568e1990f6299987051278b5f047302a308e96
+          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo@sha256:9a8a1300d636a941ab1f718dc4decac99988b1331de2f8e5c0473ca22f2024bb
           SKILL_PATHS: ${{ inputs.paths }}
           LLM_ENABLED: ${{ inputs.llm }}
           LLM_PROVIDER: ${{ inputs.llm-provider }}

@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: chrisknvidia/SkillEvaluator-ci-demo
-          ref: abd4e14d4a7bfc3b65fdbf4524baf644afd564cf
+          ref: 29734ecaa6d905f6026f59e1f91115aee24a0ac6
           path: publisher
           persist-credentials: false
       - name: Install the trusted native report renderer
@@ -136,7 +136,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: chrisknvidia/SkillEvaluator-ci-demo
-          ref: abd4e14d4a7bfc3b65fdbf4524baf644afd564cf
+          ref: 29734ecaa6d905f6026f59e1f91115aee24a0ac6
           path: publisher
           persist-credentials: false
       - name: Download this publication's feedback
