@@ -1,0 +1,38 @@
+name: Publish demo Tier 1 image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    if: github.repository == 'chrisknvidia/SkillEvaluator-ci-demo'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Build the complete Tier 1 image
+        env:
+          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo
+        run: |
+          docker build -f ci/Dockerfile.tier1 \
+            --label org.opencontainers.image.source=https://github.com/chrisknvidia/SkillEvaluator-ci-demo \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.description='Experimental complete Tier 1 CI runtime' \
+            -t "$IMAGE:sha-$GITHUB_SHA" -t "$IMAGE:demo-v1" .
+      - name: Verify the installed runtime
+        run: |
+          docker run --rm --entrypoint sh ghcr.io/chrisknvidia/skillevaluator-ci-demo:demo-v1 -c \
+            'skillevaluator --version && skillspector --version && semgrep --version && gitleaks version && bandit --version && pip-audit --version'
+      - name: Publish to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+          docker push "$IMAGE:demo-v1"
+          docker logout ghcr.io
+          printf 'Published `%s:sha-%s`\n' "$IMAGE" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

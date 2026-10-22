@@ -1,0 +1,77 @@
+name: Reusable Tier 1 skill checks
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: Newline-separated skill directories or roots containing skills
+        type: string
+        default: skills
+      llm:
+        description: Enable additional LLM security, verification, and rubric checks
+        type: boolean
+        default: false
+      llm-provider:
+        description: openai, anthropic, or nv_build
+        type: string
+        default: openai
+      llm-model:
+        description: Optional provider model override
+        type: string
+        default: ''
+      artifact-name:
+        description: Unique name when calling the workflow more than once
+        type: string
+        default: skill-evaluator-tier1
+    secrets:
+      LLM_API_KEY:
+        required: false
+permissions:
+  contents: read
+jobs:
+  tier1:
+    name: Tier 1 scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Pull the published image without registry credentials
+        env:
+          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo:demo-v1
+        run: |
+          mkdir -p "$RUNNER_TEMP/anonymous-docker-config"
+          docker --config "$RUNNER_TEMP/anonymous-docker-config" pull "$IMAGE"
+      - name: Evaluate every discovered skill
+        env:
+          IMAGE: ghcr.io/chrisknvidia/skillevaluator-ci-demo:demo-v1
+          SKILL_PATHS: ${{ inputs.paths }}
+          LLM_ENABLED: ${{ inputs.llm }}
+          LLM_PROVIDER: ${{ inputs.llm-provider }}
+          LLM_MODEL: ${{ inputs.llm-model }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/skill-reports"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --read-only --tmpfs /tmp:rw,nosuid,size=1g \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/skill-reports,dst=/reports" \
+            --env SKILL_PATHS --env LLM_ENABLED --env LLM_PROVIDER --env LLM_MODEL --env LLM_API_KEY \
+            "$IMAGE"
+      - name: Add the result to the workflow summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/skill-reports/summary.md" ]; then
+            cat "$RUNNER_TEMP/skill-reports/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf 'Tier 1 did not complete. Inspect the failed step above.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload reports even when validation fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ runner.temp }}/skill-reports/
+          if-no-files-found: warn
+          retention-days: 14
