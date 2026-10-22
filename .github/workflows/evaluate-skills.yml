@@ -53,7 +53,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/skill-reports"
           docker run --rm --user "$(id -u):$(id -g)" \
-            --read-only --tmpfs /tmp:rw,nosuid,size=1g \
+            --read-only --tmpfs /tmp:rw,nosuid,noexec,size=1g \
+            --tmpfs /audit-tmp:rw,nosuid,exec,mode=1777,size=1g --env TMPDIR=/audit-tmp \
             --cap-drop ALL --security-opt no-new-privileges \
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly" \
             --mount "type=bind,src=$RUNNER_TEMP/skill-reports,dst=/reports" \
