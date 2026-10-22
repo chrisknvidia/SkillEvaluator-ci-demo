@@ -1481,6 +1481,13 @@
                 {% if ci.get('ci_conclusion') %}<p><strong>CI conclusion</strong>{{ ci.ci_conclusion }}</p>{% endif %}
             </div>
         </details>
+        {% if (has_tier2 and 'tier2' in gating.blocking_tiers) or (has_tier3 and 'tier3' in gating.advisory_tiers) %}
+        <div class="gate-policy" aria-label="Gate policy for included tiers">
+            <strong>Gate policy</strong>
+            {% if has_tier2 and 'tier2' in gating.blocking_tiers %}<span>Blocking (Tier 1 + Tier 2)</span>{% endif %}
+            {% if has_tier3 and 'tier3' in gating.advisory_tiers %}<span>Advisory (Tier 3 agent-eval)</span>{% endif %}
+        </div>
+        {% endif %}
         <div id="report-evidence" class="workspace-heading"><h2>Findings &amp; evidence</h2><p>Inspect the outcome and supporting checks. Quality scores are separate from the pass / fail decision.</p></div>
         {% for tab in tabs %}
         <div id="tab-{{ tab.id }}" class="tab-content {{ 'active' if loop.first else '' }}">
