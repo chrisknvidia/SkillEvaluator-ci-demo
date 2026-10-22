@@ -66,9 +66,9 @@ report. A delayed older run retains its history entry without replacing a
 newer alias. Eligible PR runs create or update one bot comment with a concise
 score table, failure reasons, and direct report/run links.
 
-Hosted publication and bot-comment updates are being validated in this
-experiment; these links and routes describe the configured reporting contract,
-not proof that a new deployment has succeeded. While publication is pending,
+Hosted publication and automatic bot-comment updates have been exercised with
+real GitHub Actions runs in the consumer demo. Publication follows scan completion;
+while a new report is pending,
 open a run's **skill-evaluator-tier1** artifact and read `index.html` locally.
 The trusted publisher rebuilds HTML from validated JSON and does not execute
 PR content or reuse artifact-supplied HTML as trusted site content.
