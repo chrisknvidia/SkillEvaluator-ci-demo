@@ -1,5 +1,10 @@
 # SkillEvaluator
 
+> **Personal CI experiment:** This fork publishes a complete Tier 1 image for a
+> [separate consumer repository](https://github.com/chrisknvidia/skill-evaluator-consumer-demo).
+> See the [integration instructions](ci/README.md) and [verified live runs](ci/VERIFICATION.md).
+> This is not an official NVIDIA CI release; the upstream repository is unchanged.
+
 ![SkillEvaluator wordmark](docs/assets/skillevaluator-wordmark.svg)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
