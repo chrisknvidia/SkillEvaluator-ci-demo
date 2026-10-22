@@ -57,6 +57,11 @@ Missing credentials fail explicitly. The model provider bills the caller.
 - Paths must be repository-relative directories. Symlinks are rejected.
 - The default is network-connected static scanning: vulnerability databases can
   receive dependency metadata even when LLM checks are disabled.
+- Pinned SkillSpector v2.12.0 treats a quoted YAML version such as
+  `metadata.version: "1.0.0"` as a missing file reference, making otherwise complete
+  static analysis partial. The example skills use the equivalent valid YAML
+  string `version: 1.0.0` to avoid this confirmed false positive. No scanner check
+  or completeness requirement is disabled, and no upstream issue has been filed.
 - Private registry authentication, plugin scanning, Tier 2/3, and automatic PR
   comments are outside this demonstration.
 - The workflow has a 30-minute limit. Large collections need batching.
