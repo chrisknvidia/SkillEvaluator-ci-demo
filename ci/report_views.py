@@ -288,7 +288,7 @@ th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #e
 th{background:#f1f5ec}caption{text-align:left;font-weight:600;padding:10px 0}.scroll{overflow-x:auto}
 .badge{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12px;font-weight:750;white-space:nowrap}
 .pass{background:#e9f4d9;color:#345400}.fail{background:#ffe8e5;color:#992c23}.warn{background:#fff2d1;color:#795300}.neutral{background:#edf0ed;color:#465046}
-.meta{color:#536257;font-size:14px}.notice{border-left:4px solid #76b900;padding:12px;background:#f1f6e9}
+.meta{color:#536257;font-size:14px;overflow-wrap:anywhere}.notice{border-left:4px solid #76b900;padding:12px;background:#f1f6e9}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8f5;padding:12px;border-radius:5px;font:13px/1.6 ui-monospace,monospace}
 .evidence td:first-child{width:24%;font-weight:600}small{color:#536257}.stats{font-size:18px;padding:12px 0}
 @media(max-width:650px){main{padding:16px 10px}header,section,details{padding:14px}h1{font-size:25px}
