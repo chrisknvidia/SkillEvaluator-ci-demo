@@ -116,6 +116,57 @@ def test_all_skills_run_after_failure_and_scanner_stdout_is_not_printed(tmp_path
     assert calls[0][1]["env"]["HOME"] == "/tmp/evaluator-home"
 
 
+def test_structured_failure_logs_and_annotations_are_escaped(capsys):
+    row = {"path": "skills/example", "overall_status": "failed"}
+    report = {
+        "quality_summary": [{"overall_score": 71.8, "grade": "C"}],
+        "results": [
+            {
+                "validator": "Schema,metadata",
+                "status": "failed",
+                "passed": False,
+                "findings": [
+                    {
+                        "severity": "high",
+                        "message": "Bad name\n::notice::injected",
+                        "suggestion": "Use kebab-case",
+                        "file_path": "/workspace/skills/example/SKILL.md",
+                        "line_number": None,
+                    }
+                ],
+            }
+        ],
+    }
+    runner.log_result(row, report, annotations=True, budget={"errors": 0})
+    output = capsys.readouterr().out
+    assert "71.8/100" in output
+    assert "Suggested fix:" in output
+    assert "\n::notice::injected" not in output
+    commands = [line for line in output.splitlines() if line.startswith("::")]
+    assert len(commands) == 1
+    assert "title=Schema%2Cmetadata,file=skills/example/SKILL.md" in commands[0]
+    assert "Bad name%0A::notice::injected" in commands[0]
+    assert ",line=" not in commands[0]
+
+
+def test_annotation_budget_does_not_hide_log_details(capsys):
+    row = {"path": "skills/example", "overall_status": "failed"}
+    report = {
+        "results": [
+            {
+                "validator": "Schema",
+                "status": "failed",
+                "passed": False,
+                "findings": [{"severity": "high", "message": "Bad metadata"}],
+            }
+        ]
+    }
+    runner.log_result(row, report, annotations=True, budget={"errors": 10})
+    output = capsys.readouterr().out
+    assert "Bad metadata" in output
+    assert "::error" not in output
+
+
 @pytest.mark.parametrize(
     "exit_code,report",
     [

@@ -22,6 +22,10 @@ on:
         description: Unique name when calling the workflow more than once
         type: string
         default: skill-evaluator-tier1
+      report-base-url:
+        description: Optional GitHub Pages report site for stable links
+        type: string
+        default: ''
     secrets:
       LLM_API_KEY:
         required: false
@@ -50,8 +54,17 @@ jobs:
           LLM_PROVIDER: ${{ inputs.llm-provider }}
           LLM_MODEL: ${{ inputs.llm-model }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          REPORT_BASE_URL: ${{ inputs.report-base-url }}
+          REPORT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPORT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/skill-reports"
+          REPORT_IMAGE="$IMAGE"
+          REPORT_URL=""
+          if [ -n "$REPORT_BASE_URL" ]; then
+            REPORT_URL="${REPORT_BASE_URL%/}/runs/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT/"
+          fi
+          export REPORT_IMAGE REPORT_URL
           docker run --rm --user "$(id -u):$(id -g)" \
             --read-only --tmpfs /tmp:rw,nosuid,noexec,size=1g \
             --tmpfs /audit-tmp:rw,nosuid,exec,mode=1777,size=1g --env TMPDIR=/audit-tmp \
@@ -59,6 +72,7 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly" \
             --mount "type=bind,src=$RUNNER_TEMP/skill-reports,dst=/reports" \
             --env SKILL_PATHS --env LLM_ENABLED --env LLM_PROVIDER --env LLM_MODEL --env LLM_API_KEY \
+            --env GITHUB_ACTIONS --env REPORT_IMAGE --env REPORT_URL --env REPORT_RUN_URL --env REPORT_COMMIT \
             "$IMAGE"
       - name: Add the result to the workflow summary
         if: always()

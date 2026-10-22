@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# ruff: noqa: INP001, T201 -- standalone CI entrypoint; stdout contains fixed progress only.
+# ruff: noqa: INP001, T201 -- standalone CI entrypoint with escaped diagnostic output.
 
 """Run complete Tier 1 checks on configured repository skills and retain evidence.
 
-This adapter deliberately emits only fixed progress messages on stdout. Scanner
-output belongs in artifacts, never in the GitHub workflow-command stream.
+Raw scanner output belongs in artifacts. Structured findings are escaped before
+being shown in logs or GitHub annotations.
 """
 
 from __future__ import annotations
@@ -17,6 +17,11 @@ import os
 import re
 import subprocess
 from pathlib import Path
+
+try:
+    from report_views import render_reports
+except ModuleNotFoundError:
+    from ci.report_views import render_reports
 
 MAX_SKILLS = 100
 MAX_REPORT_BYTES = 32 * 1024 * 1024
@@ -189,26 +194,65 @@ def _summary(skills: list[dict], error: str | None = None) -> dict:
 
 def _write_summary(reports: Path, summary: dict) -> None:
     _write_json(reports / "summary.json", summary)
-    lines = [
-        "# SkillEvaluator Tier 1",
-        "",
-        f"Result: **{summary['overall_status']}**",
-        "",
-        f"Skills: {summary['total']} | Passed: {summary['passed']} | Failed: {summary['failed']} | Incomplete: {summary['incomplete']}",
-        "",
-    ]
-    if summary.get("error"):
-        lines.extend([markdown_text(summary["error"]), ""])
-    lines.extend(["| Skill | Exit code | Status | Incomplete scanners |", "| --- | --- | --- | --- |"])
-    for item in summary["skills"]:
-        scans = ", ".join(item["incomplete_scans"]) or "none"
-        lines.append(
-            f"| {markdown_text(item['path'])} | {item['exit_code']} | {item['overall_status']} | {markdown_text(scans)} |"
+    render_reports(reports, summary, summary.get("execution", {}))
+
+
+def annotation_text(value: str, *, property_value: bool = False) -> str:
+    """Escape GitHub command syntax; finding text must never create commands."""
+    escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return escaped.replace(":", "%3A").replace(",", "%2C") if property_value else escaped
+
+
+def log_result(row: dict, data: dict | None, *, annotations: bool, budget: dict[str, int]) -> None:
+    """Explain verdicts promptly without replaying arbitrary subprocess logs."""
+    print(f"Skill result: {json.dumps(row['path'])} — {row['overall_status'].upper()}", flush=True)
+    if not data:
+        print(f"  Reason: {json.dumps(row.get('error', 'No complete report was produced.'))}", flush=True)
+        return
+    for quality in data.get("quality_summary", []):
+        print(
+            f"  Quality: {json.dumps(quality.get('overall_score', 'unknown'))}/100, grade {json.dumps(quality.get('grade'))}",
+            flush=True,
         )
-    temporary = reports / "summary.md.tmp"
-    with temporary.open("x", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")
-    temporary.replace(reports / "summary.md")
+    shown = 0
+    for result in data.get("results", []):
+        print(f"  Check: {json.dumps(result.get('validator'))} — {json.dumps(result.get('status'))}", flush=True)
+        if result.get("incomplete_scans"):
+            print(f"    Incomplete scanners: {json.dumps(result['incomplete_scans'])}", flush=True)
+        for finding in result.get("findings", []):
+            if finding.get("severity") not in {"critical", "high"} or shown >= 20:
+                continue
+            shown += 1
+            message = str(finding.get("message", "Finding details unavailable."))[:4000]
+            suggestion = str(finding.get("suggestion") or "Consult the full report.")[:2000]
+            location = str(finding.get("file_path") or row["path"])
+            print(f"    Failure: {json.dumps(message)}", flush=True)
+            print(f"    Location: {json.dumps(location)}", flush=True)
+            print(f"    Suggested fix: {json.dumps(suggestion)}", flush=True)
+            if annotations and result.get("passed") is False and budget["errors"] < 10:
+                budget["errors"] += 1
+                properties = "title=" + annotation_text(str(result.get("validator", "Tier 1")), property_value=True)
+                if location.startswith("/workspace/"):
+                    relative = location.removeprefix("/workspace/")
+                    if ".." not in Path(relative).parts:
+                        properties += ",file=" + annotation_text(relative, property_value=True)
+                        line = finding.get("line_number")
+                        if type(line) is int and line > 0:
+                            properties += f",line={line}"
+                print(f"::error {properties}::{annotation_text(message + ' Suggested fix: ' + suggestion)}", flush=True)
+        if result.get("status") in {"incomplete", "failed"}:
+            for message in result.get("legacy", {}).get("errors", [])[:3]:
+                print(f"    Scanner error: {json.dumps(str(message)[:4000])}", flush=True)
+
+
+def execution_context(environ: dict[str, str]) -> dict:
+    return {
+        "run_url": environ.get("REPORT_RUN_URL", ""),
+        "commit": environ.get("REPORT_COMMIT", ""),
+        "image": environ.get("REPORT_IMAGE", ""),
+        "report_url": environ.get("REPORT_URL", ""),
+        "llm_enabled": environ.get("LLM_ENABLED", "false").lower() == "true",
+    }
 
 
 def run(workspace: Path, reports: Path, environ: dict[str, str], *, execute=subprocess.run) -> int:
@@ -220,6 +264,8 @@ def run(workspace: Path, reports: Path, environ: dict[str, str], *, execute=subp
         raise ConfigurationError("The report directory must be empty to avoid stale evidence.")
     reports = reports.resolve(strict=True)
     rows = []
+    context = execution_context(environ)
+    annotation_budget = {"errors": 0}
     try:
         workspace = workspace.resolve(strict=True)
         if reports.is_relative_to(workspace):
@@ -232,11 +278,16 @@ def run(workspace: Path, reports: Path, environ: dict[str, str], *, execute=subp
             if isinstance(exc, ConfigurationError)
             else "The workspace or runtime configuration could not be read."
         )
-        _write_summary(reports, _summary([], error=message))
-        print("SkillEvaluator configuration failed.", flush=True)
+        summary = _summary([], error=message)
+        summary["execution"] = context
+        _write_summary(reports, summary)
+        print(f"SkillEvaluator configuration failed: {json.dumps(message)}", flush=True)
         return 1
     for index, target in enumerate(selected, 1):
-        print(f"SkillEvaluator: evaluating skill {index} of {len(selected)}.", flush=True)
+        print(
+            f"SkillEvaluator: evaluating skill {index} of {len(selected)}: {json.dumps(target.relative_to(workspace).as_posix())}",
+            flush=True,
+        )
         output = reports / f"skill-{index:03d}"
         output.mkdir()
         row = {
@@ -259,6 +310,7 @@ def run(workspace: Path, reports: Path, environ: dict[str, str], *, execute=subp
             "-o",
             str(output),
         ]
+        data = None
         try:
             with (output / "stdout.log").open("xb") as stdout, (output / "stderr.log").open("xb") as stderr:
                 process = execute(argv, cwd=workspace, env=env, stdout=stdout, stderr=stderr, check=False)
@@ -291,7 +343,9 @@ def run(workspace: Path, reports: Path, environ: dict[str, str], *, execute=subp
         except (OSError, ValueError, UnicodeError, RecursionError):
             row["error"] = "Evaluator execution failed or its JSON report was missing, unreadable, or invalid."
         rows.append(row)
+        log_result(row, data, annotations=environ.get("GITHUB_ACTIONS") == "true", budget=annotation_budget)
     summary = _summary(rows)
+    summary["execution"] = context
     _write_summary(reports, summary)
     print(f"SkillEvaluator finished: {summary['passed']} of {summary['total']} skills passed.", flush=True)
     return 0 if summary["overall_passed"] else 1
