@@ -65,7 +65,7 @@ def test_native_reports_overwrite_artifact_html_keep_json_and_link_details(tmp_p
     assert (tmp_path / "skill-001/skillevaluator-tier1.json").read_text() == raw
     assert "Content-Security-Policy" in native and "sha256-" in native and "unsafe-eval" not in native
     assert "<img src=x onerror=alert(1)>" not in native
-    assert "https://example.com/run/skill-001/skillevaluator-tier1.html" in (tmp_path / "summary.md").read_text()
+    assert "https://example.com/run/skill-001/skillevaluator-tier1.html" in (tmp_path / "details.md").read_text()
 
 
 def test_malformed_retained_evidence_is_not_silently_published(tmp_path):

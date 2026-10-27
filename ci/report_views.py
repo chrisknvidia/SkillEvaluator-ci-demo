@@ -12,7 +12,9 @@ import tempfile
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-SUMMARY_LIMIT = 500 * 1024
+SUMMARY_LIMIT = 20 * 1024
+DETAIL_LIMIT = 500 * 1024
+SUMMARY_SKILL_LIMIT = 5
 COMMENT_LIMIT = 50 * 1024
 REPORT_LIMIT = 32 * 1024 * 1024
 
@@ -277,6 +279,154 @@ def _write(path: Path, content: str) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _brief(value: object, limit: int = 320) -> str:
+    text = _text(value)
+    return _md(text if len(text) <= limit else text[:limit] + "… (see full report)")
+
+
+def _first_action(model: dict) -> tuple[str, str, str]:
+    """Select one recorded problem, preferring unavailable scans over findings."""
+    row = model["row"]
+    if model["issue"] or row.get("error"):
+        return (
+            _text(row.get("error") or model["issue"]),
+            "",
+            "Inspect the failed workflow step and report artifacts, then rerun the scan.",
+        )
+    failed = [r for r in model["results"] if _status(r) in {"FAIL", "INCOMPLETE", "UNKNOWN"}]
+    failed.sort(key=lambda r: _status(r) == "FAIL")
+    for result in failed:
+        legacy = _dict(result.get("legacy"))
+        if _status(result) in {"INCOMPLETE", "UNKNOWN"}:
+            errors = _items(legacy.get("errors"))
+            warnings = _items(legacy.get("warnings"))
+            reason = errors[0] if errors else result.get("skip_reason")
+            reason = reason or (warnings[0] if warnings else None)
+            reason = reason or (
+                "Scans did not complete: " + _text(result["incomplete_scans"])
+                if result.get("incomplete_scans")
+                else "Execution evidence is incomplete."
+            )
+            return (
+                f"{_text(result.get('validator'))}: {_text(reason)}",
+                "",
+                "Check this validator's diagnostics and rerun after restoring the missing scan.",
+            )
+        findings = [_dict(f) for f in _items(result.get("findings"))]
+        severity = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        findings.sort(key=lambda f: severity.get(_text(f.get("severity")).lower(), 5))
+        finding = findings[0] if findings else {}
+        errors = _items(legacy.get("errors"))
+        reason = finding.get("message") or (errors[0] if errors else "This validator failed without a recorded reason.")
+        fix = (
+            finding.get("suggestion")
+            or "Open the full report and inspect this validator's diagnostics before rerunning."
+        )
+        location = _text(finding["file_path"]) if finding.get("file_path") else ""
+        location = location.removeprefix("/workspace/")
+        line = finding.get("line_number")
+        if type(line) is int and line > 0:
+            location += f":{line}"
+        # Only offer a concrete replacement for this exact, known schema failure.
+        # Other naming failures and arbitrary findings retain their recorded fix.
+        name_error = re.fullmatch(
+            r"Field 'name': Value error, Skill name '([^'\n]+)' must be in kebab-case format "
+            r"\(lowercase letters, numbers, and hyphens only, starting with a letter\)",
+            _text(reason),
+        )
+        folder = _text(row.get("path")).rstrip("/").rsplit("/", 1)[-1]
+        if (
+            finding.get("category") == "SCHEMA"
+            and finding.get("check_name") == "frontmatter_field"
+            and _dict(finding.get("metadata")).get("field") == "name"
+            and name_error
+            and re.fullmatch(r"[a-z][a-z0-9-]{0,63}", folder)
+        ):
+            reason = f"Invalid skill name: '{name_error[1]}'."
+            fix = f"Set name: {folder} in SKILL.md frontmatter to match the skill directory."
+        return _text(reason), location, _text(fix)
+    return (
+        "The skill did not produce a complete passing result.",
+        "",
+        "Open the full report and inspect the failed workflow step before rerunning.",
+    )
+
+
+def _compact_summary(models: list[dict], summary: dict, context: dict, *, status: str, llm: str, footer: str) -> str:
+    """Keep the Actions landing view small; detailed evidence lives in reports."""
+    outcomes = [
+        "INCOMPLETE"
+        if model["skill_status"] == "PASS"
+        and any(_status(r) in {"FAIL", "INCOMPLETE", "UNKNOWN"} for r in model["results"])
+        else model["skill_status"]
+        for model in models
+    ]
+    affected = [model for model, outcome in zip(models, outcomes, strict=True) if outcome != "PASS"]
+    counts = {key: outcomes.count(key) for key in ("PASS", "FAIL", "INCOMPLETE")}
+    mismatch = any(
+        summary.get(key) != count
+        for key, count in (
+            ("total", len(models)),
+            ("passed", counts["PASS"]),
+            # The runtime rollup counts every non-passing skill as failed,
+            # including its incomplete subset. Display the subsets separately.
+            ("failed", counts["FAIL"] + counts["INCOMPLETE"]),
+            ("incomplete", counts["INCOMPLETE"]),
+        )
+    )
+    if (not models or mismatch) and status in {"PASSED", "PASS"}:
+        status = "INCOMPLETE"
+    if summary.get("error"):
+        status = "ERROR"
+    if status.startswith("INCOMPLETE"):
+        status = "INCOMPLETE"
+    lines = ["# Skill scan", f"**Tier 1 scan result: {_brief(status)}**"]
+    lines.append(
+        f"{len(models)} skills · {counts['PASS']} passed · {counts['FAIL']} failed · {counts['INCOMPLETE']} incomplete"
+    )
+    if summary.get("error"):
+        lines.extend(
+            [f"**Run error:** {_brief(summary['error'])}", "Correct the workflow configuration and rerun the scan."]
+        )
+    if mismatch:
+        lines.append(
+            "**Report evidence is missing or inconsistent.** Inspect the full report before relying on these results."
+        )
+    if affected:
+        lines.append("## What to fix")
+        lines.append("First issue per affected skill; the full report contains all findings.")
+        for model in affected[:SUMMARY_SKILL_LIMIT]:
+            reason, location, fix = _first_action(model)
+            lines.append(f"**{_brief(model['row'].get('path'), 200)}**")
+            lines.append(f"Problem: {_brief(reason)}")
+            if location:
+                lines.append(f"File: {_brief(location, 240)}")
+            lines.append(f"Suggested fix: {_brief(fix)}")
+        if len(affected) > SUMMARY_SKILL_LIMIT:
+            lines.append(f"**{len(affected) - SUMMARY_SKILL_LIMIT} more affected skills:** open the full report.")
+        lines.append("Push your fixes to rerun PR checks, or rerun the workflow after resolving scan errors.")
+    elif models and status in {"PASSED", "PASS"}:
+        lines.append("No blocking issues found. Advisory findings remain available in the full report.")
+    elif not summary.get("error"):
+        lines.append("Inspect the full report and failed workflow step; no complete passing scan is established.")
+    conclusion = context.get("ci_conclusion", context.get("run_conclusion"))
+    if conclusion is not None:
+        lines.append(f"**CI run conclusion:** {_brief(conclusion, 80)}")
+    lines.append(f"Tier 1 only · Tier 2: Not run · Tier 3: Not run. {_brief(llm, 240)}")
+    # The source scan's artifact is also the fallback when reading a separate
+    # publisher workflow's summary, or when the hosted URL is not deployed yet.
+    artifact_help = (
+        "Full evidence: download the scan run's report artifact and open index.html. Detailed Markdown: details.md."
+    )
+    # Percent encoding can expand a valid URL beyond the entire display budget.
+    # Preserve the result and counts rather than spending that budget on links.
+    if len(footer.encode("utf-8")) > SUMMARY_LIMIT // 2 or footer.startswith("Full evidence:"):
+        footer = artifact_help
+    else:
+        lines.append(artifact_help)
+    return _bounded(lines, SUMMARY_LIMIT, footer)
+
+
 _STYLE = """
 :root{font:16px/1.6 system-ui,sans-serif;color:#1d2823;background:#f5f7f5;--green:#527b00}
 *{box-sizing:border-box}body{margin:0}main{max-width:1240px;margin:auto;padding:40px 24px}
@@ -298,7 +448,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8f5;padding:12px;
 
 
 def render_reports(reports: Path, summary: dict, context: dict) -> None:
-    """Write HTML, rich Markdown, and a bounded PR comment; preserve summary.json.
+    """Write HTML, a short Actions summary, detailed Markdown and a PR comment.
 
     Optional context keys: run_url, commit, image, report_url, llm_enabled, ci_conclusion.
     report_url is the hosted directory containing index.html and the artifacts.
@@ -537,5 +687,6 @@ def render_reports(reports: Path, summary: dict, context: dict) -> None:
         '<p class="meta">Retained evidence is shown as recorded. NOT APPLICABLE requires an explicit source statement; UNKNOWN or INCOMPLETE indicates missing proof. Scanner messages may include advisory warnings even when the configured gate passes.</p></main></body></html>'
     )
     _write(reports / "index.html", "".join(page))
-    _write(reports / "summary.md", _bounded(markdown, SUMMARY_LIMIT, footer))
+    _write(reports / "details.md", _bounded(markdown, DETAIL_LIMIT, footer))
+    _write(reports / "summary.md", _compact_summary(models, summary, context, status=status, llm=llm, footer=footer))
     _write(reports / "pr-comment.md", _bounded(comments, COMMENT_LIMIT, footer))

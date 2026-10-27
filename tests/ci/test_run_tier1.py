@@ -253,7 +253,7 @@ def test_markdown_paths_cannot_inject_html_or_table_rows(tmp_path):
     skill(workspace, "skills/<script>|[x]`danger`")
     reports = tmp_path / "reports"
     assert runner.run(workspace, reports, {"SKILL_PATHS": "skills"}, execute=fake_cli([(0, payload())], [])) == 0
-    markdown = (reports / "summary.md").read_text()
+    markdown = (reports / "details.md").read_text()
     assert "<script>" not in markdown
     assert "&lt;script&gt;" in markdown
     assert "\\|" in markdown
@@ -327,3 +327,24 @@ def test_static_run_does_not_receive_ambient_model_credentials():
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
     assert env["SEMGREP_SEND_METRICS"] == "off"
     assert env["SEMGREP_ENABLE_VERSION_CHECK"] == "0"
+
+
+def test_incomplete_runtime_rollup_is_not_mislabeled_as_inconsistent_evidence(tmp_path):
+    workspace = tmp_path / "workspace"
+    skill(workspace, "skills/a")
+    reports = tmp_path / "reports"
+    assert (
+        runner.run(
+            workspace,
+            reports,
+            {"SKILL_PATHS": "skills"},
+            execute=fake_cli([(1, payload(True, "incomplete", ["semgrep"]))], []),
+        )
+        == 1
+    )
+    summary = json.loads((reports / "summary.json").read_text())
+    assert (summary["failed"], summary["incomplete"]) == (1, 1)
+    compact = (reports / "summary.md").read_text()
+    assert "**Tier 1 scan result: INCOMPLETE**" in compact
+    assert "1 skills · 0 passed · 0 failed · 1 incomplete" in compact
+    assert "Report evidence is missing or inconsistent" not in compact

@@ -45,10 +45,13 @@ want branch rules to prevent merging a failure.
 The consumer runs on pull-request changes, pushes to `main`, and manual
 **Skill checks** starts. Each run has three reporting surfaces:
 
-- **GitHub run summary:** per-skill status, recorded quality score and grade,
-  error/warning counts, scope, and validator evidence. Tier 2 and Tier 3 are
-  explicitly **Not run**. Missing or inapplicable checks are not presented as
-  successful execution.
+- **GitHub run summary:** result, skill counts, and the first actionable issue
+  and suggested fix for up to five affected skills. Additional affected skills
+  are counted explicitly. The full report contains every finding, score and
+  validator detail; `details.md` retains the detailed aggregate Markdown in the
+  downloadable artifact. Tier 2 and Tier 3 are explicitly **Not run**. Missing
+  evidence and incomplete scans remain visible. Without hosted reports, download
+  the run's artifact and open `index.html`.
 - **Job logs and annotations:** the scan step prints each skill and validator
   outcome. Failed checks include recorded reasons, locations, and suggested
   fixes; annotations highlight a bounded set of actionable failures. Full

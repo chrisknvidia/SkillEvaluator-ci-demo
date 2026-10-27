@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Report presentation must preserve evidence, scope, and untrusted boundaries."""
 
+import copy
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -16,18 +18,29 @@ SPEC.loader.exec_module(views)
 def example(tmp_path, *, result=None):
     directory = tmp_path / "skill-001"
     directory.mkdir()
-    result = result or {
-        "validator": "Code risk",
-        "passed": True,
-        "status": "passed",
-        "summary": {"checks_performed": 2, "errors": 0, "warnings": 0},
-        "success_details": [{"check": "bandit", "message": "No issues"}],
-    }
+    result = (
+        result
+        if result is not None
+        else {
+            "validator": "Code risk",
+            "passed": True,
+            "status": "passed",
+            "summary": {"checks_performed": 2, "errors": 0, "warnings": 0},
+            "success_details": [{"check": "bandit", "message": "No issues"}],
+        }
+    )
+    status = (
+        "incomplete"
+        if result.get("incomplete_scans") or result.get("status") in {"incomplete", "error"}
+        else ("failed" if result.get("status") == "failed" or result.get("passed") is False else "passed")
+    )
+    errors = result.get("summary", {}).get("errors", 0)
+    warnings = result.get("summary", {}).get("warnings", 0)
     data = {
-        "overall_status": "passed",
-        "overall_passed": True,
-        "total_errors": 0,
-        "total_warnings": 0,
+        "overall_status": status,
+        "overall_passed": status == "passed",
+        "total_errors": errors,
+        "total_warnings": warnings,
         "results": [result],
         "quality_summary": [
             {
@@ -41,16 +54,53 @@ def example(tmp_path, *, result=None):
     (directory / "skillevaluator-tier1.json").write_text(json.dumps(data))
     summary = {
         "total": 1,
-        "passed": 1,
-        "failed": 0,
-        "incomplete": 0,
-        "overall_status": "passed",
-        "total_errors": 0,
-        "total_warnings": 0,
-        "skills": [{"path": "skills/sample", "report_dir": "skill-001", "overall_status": "passed", "passed": True}],
+        "passed": int(status == "passed"),
+        "failed": int(status != "passed"),
+        "incomplete": int(status == "incomplete"),
+        "overall_status": status,
+        "total_errors": errors,
+        "total_warnings": warnings,
+        "skills": [
+            {"path": "skills/sample", "report_dir": "skill-001", "overall_status": status, "passed": status == "passed"}
+        ],
     }
     (tmp_path / "summary.json").write_text(json.dumps(summary))
     return summary, data
+
+
+def align_verdict(summary, data, status):
+    """Make explicitly mutated fixtures internally consistent; mismatch tests opt out."""
+    data.update(overall_status=status, overall_passed=status == "passed")
+    summary.update(
+        overall_status=status,
+        passed=int(status == "passed"),
+        failed=int(status != "passed"),
+        incomplete=int(status == "incomplete"),
+    )
+    summary["skills"][0].update(overall_status=status, passed=status == "passed")
+
+
+def compact_header(markdown):
+    return next(line for line in markdown.splitlines() if line.startswith("**Tier 1 scan result:"))
+
+
+def visible_markdown(markdown):
+    """Assert what a GitHub-style Markdown reader sees, including escaped punctuation."""
+    from html.parser import HTMLParser
+
+    from markdown_it import MarkdownIt
+
+    class Visible(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.parts = []
+
+        def handle_data(self, data):
+            self.parts.append(data)
+
+    parser = Visible()
+    parser.feed(MarkdownIt("commonmark").enable("table").render(markdown))
+    return "".join(parser.parts)
 
 
 def test_scores_scope_and_json_only_publish(tmp_path):
@@ -94,14 +144,14 @@ def test_failure_finding_location_and_suggestion_are_visible(tmp_path):
     }
     summary, _ = example(tmp_path, result=result)
     views.render_reports(tmp_path, summary, {})
-    for file in ["index.html", "summary.md", "pr-comment.md"]:
+    for file in ["index.html", "summary.md", "details.md", "pr-comment.md"]:
         text = (tmp_path / file).read_text()
         assert "Bad name" in text and "Use kebab" in text and "SKILL" in text
     page = (tmp_path / "index.html").read_text()
     assert page.index("Needs attention") < page.index("Skills and scores")
     assert page.index("Bad name") < page.index("Skills and scores")
     assert "name: BAD" in page
-    assert "Schema rejected the name" in (tmp_path / "summary.md").read_text()
+    assert "Schema rejected the name" in (tmp_path / "details.md").read_text()
     assert "Additional advisory" in (tmp_path / "index.html").read_text()
 
 
@@ -149,7 +199,7 @@ def test_untrusted_strings_and_urls_cannot_create_markup(tmp_path):
     assert "<script>" not in page and "&lt;script&gt;" in page
     assert 'href="javascript:' not in page and 'href="data:' not in page
     assert "<script>" not in (tmp_path / "summary.md").read_text()
-    assert "\\[escape\\]" in (tmp_path / "summary.md").read_text()
+    assert "\\[escape\\]" in (tmp_path / "details.md").read_text()
     assert "<script" not in page.lower() and "<iframe" not in page.lower()
 
 
@@ -178,11 +228,12 @@ def test_summary_and_comment_limits_keep_complete_html(tmp_path):
     data["results"][0]["legacy"] = {"warnings": ["Long finding " + "x" * (600 * 1024)]}
     data["results"][0]["status"] = "failed"
     data["results"][0]["passed"] = False
+    align_verdict(summary, data, "failed")
     (tmp_path / "skill-001/skillevaluator-tier1.json").write_text(json.dumps(data))
     views.render_reports(tmp_path, summary, {"report_url": "https://example.com/full"})
-    assert (tmp_path / "summary.md").stat().st_size <= views.SUMMARY_LIMIT
+    assert (tmp_path / "summary.md").stat().st_size <= 20 * 1024
     assert (tmp_path / "pr-comment.md").stat().st_size <= views.COMMENT_LIMIT
-    assert "Truncated for CI display limits" in (tmp_path / "summary.md").read_text()
+    assert "Truncated for CI display limits" in (tmp_path / "details.md").read_text()
     assert "x" * (600 * 1024) in (tmp_path / "index.html").read_text()
     assert "https://example.com/full/index.html" in (tmp_path / "pr-comment.md").read_text()
 
@@ -201,12 +252,14 @@ def test_github_mentions_are_neutralized_in_all_markdown_views(tmp_path):
     summary, data = example(tmp_path)
     summary["skills"][0]["path"] = "skills/@some-user/@some-org/team"
     data["results"][0]["status"] = "failed"
+    data["results"][0]["passed"] = False
+    align_verdict(summary, data, "failed")
     data["results"][0]["findings"] = [
         {"message": "Ask @some-user and @some-org/team", "suggestion": "Contact @some-user"}
     ]
     (tmp_path / "skill-001/skillevaluator-tier1.json").write_text(json.dumps(data))
     views.render_reports(tmp_path, summary, {"commit": "@some-user", "image": "@some-org/team"})
-    for filename in ["summary.md", "pr-comment.md"]:
+    for filename in ["summary.md", "details.md", "pr-comment.md"]:
         text = (tmp_path / filename).read_text()
         assert "@some-user" not in text
         assert "@some-org" not in text
@@ -270,7 +323,7 @@ def test_generated_markdown_tables_parse_with_github_table_rules(tmp_path):
     summary, _ = example(tmp_path)
     views.render_reports(tmp_path, summary, {})
     parser = MarkdownIt("commonmark").enable("table")
-    markdown = (tmp_path / "summary.md").read_text()
+    markdown = (tmp_path / "details.md").read_text()
     comment = (tmp_path / "pr-comment.md").read_text()
     summary_html = parser.render(markdown)
     comment_html = parser.render(comment)
@@ -299,7 +352,7 @@ def test_hosted_markdown_uses_published_native_html_index_and_json(tmp_path):
         (directory / filename).write_text("Original artifact evidence")
     base = "https://example.com/reports/run-1"
     views.render_reports(tmp_path, summary, {"report_url": base})
-    markdown = (tmp_path / "summary.md").read_text()
+    markdown = (tmp_path / "details.md").read_text()
     tokens = MarkdownIt("commonmark").enable("table").parse(markdown)
     urls = [child.attrGet("href") for token in tokens for child in token.children or [] if child.type == "link_open"]
     assert base + "/index.html#skill-001" in urls
@@ -360,9 +413,10 @@ def test_markdown_findings_render_readable_quotes_and_preserve_entity_text(tmp_p
             "findings": [{"message": message, "check_name": "frontmatter_field", "severity": "high"}],
         }
     )
+    align_verdict(summary, data, "failed")
     (tmp_path / "skill-001/skillevaluator-tier1.json").write_text(json.dumps(data))
     views.render_reports(tmp_path, summary, {})
-    for filename in ["summary.md", "pr-comment.md"]:
+    for filename in ["summary.md", "details.md", "pr-comment.md"]:
         markdown = (tmp_path / filename).read_text()
         parser = VisibleText()
         parser.feed(MarkdownIt("commonmark").enable("table").render(markdown))
@@ -372,3 +426,246 @@ def test_markdown_findings_render_readable_quotes_and_preserve_entity_text(tmp_p
     parser = VisibleText()
     parser.feed(MarkdownIt("commonmark").render(views._md("A & B > C < D; entity text &#x27;")))
     assert "A & B > C < D; entity text &#x27;" in "".join(parser.parts)
+
+
+def failed_result(
+    *, message="First blocking problem", suggestion="Apply the recorded fix", path="skills/sample/SKILL.md"
+):
+    return {
+        "validator": "Schema",
+        "status": "failed",
+        "passed": False,
+        "summary": {"errors": 1, "warnings": 0, "checks_performed": 2},
+        "findings": [
+            {
+                "category": "SCHEMA",
+                "check_name": "frontmatter_field",
+                "severity": "high",
+                "message": message,
+                "file_path": path,
+                "line_number": 2,
+                "suggestion": suggestion,
+            }
+        ],
+    }
+
+
+def test_compact_all_pass_is_concise_and_rich_evidence_stays_in_details(tmp_path):
+    from markdown_it import MarkdownIt
+
+    summary, _ = example(tmp_path)
+    views.render_reports(tmp_path, summary, {"report_url": "https://example.com/run"})
+    compact = (tmp_path / "summary.md").read_text()
+    rich = (tmp_path / "details.md").read_text()
+    assert compact_header(compact) == "**Tier 1 scan result: PASSED**"
+    assert "1 skills · 1 passed · 0 failed · 0 incomplete" in compact
+    assert len(compact.encode()) <= 20 * 1024
+    assert len(compact) < 2000
+    for dump in ("98.2", "Code risk", "bandit", "skills/sample", "Validator outcomes", "Quality dimensions"):
+        assert dump not in compact
+    assert "<table>" not in MarkdownIt("commonmark").enable("table").render(compact)
+    assert "98.2" in rich and "Code risk" in rich and "bandit" in rich
+    assert "Tier 2: Not run" in compact and "Tier 3: Not run" in compact
+    assert "skipped" in compact and "--no-llm" in visible_markdown(compact)
+    assert "https://example.com/run/index.html" in compact
+
+
+def test_compact_failure_has_one_action_with_recorded_fix_and_location(tmp_path):
+    result = failed_result()
+    result["findings"].append(
+        {
+            "severity": "high",
+            "message": "Secondary finding belongs in details",
+            "file_path": "skills/sample/SECOND.md",
+            "suggestion": "Secondary fix",
+        }
+    )
+    summary, _ = example(tmp_path, result=result)
+    views.render_reports(tmp_path, summary, {})
+    compact = (tmp_path / "summary.md").read_text()
+    assert compact_header(compact) == "**Tier 1 scan result: FAILED**"
+    assert "1 skills · 0 passed · 1 failed · 0 incomplete" in compact
+    assert "First blocking problem" in compact and "Apply the recorded fix" in compact
+    assert "skills/sample/SKILL.md:2" in visible_markdown(compact)
+    assert "Secondary finding belongs in details" not in compact
+    assert "Secondary finding belongs in details" in (tmp_path / "details.md").read_text()
+    assert "download" in compact.lower() and "index.html" in compact and "details.md" in compact
+
+
+@pytest.mark.parametrize("with_diagnostic", [True, False])
+def test_compact_incomplete_has_reason_even_without_findings(tmp_path, with_diagnostic):
+    result = {
+        "validator": "Code risk",
+        "status": "incomplete",
+        "passed": True,
+        "summary": {"errors": 0, "warnings": 1, "checks_performed": 1},
+    }
+    if with_diagnostic:
+        result.update(incomplete_scans=["semgrep"], legacy={"errors": ["Semgrep timed out after 30 seconds"]})
+    summary, _ = example(tmp_path, result=result)
+    views.render_reports(tmp_path, summary, {})
+    compact = (tmp_path / "summary.md").read_text()
+    assert compact_header(compact) == "**Tier 1 scan result: INCOMPLETE**"
+    assert "1 skills · 0 passed · 0 failed · 1 incomplete" in compact
+    assert summary["failed"] == 1  # Runtime failed count includes its incomplete subset.
+    assert "Report evidence is missing or inconsistent" not in compact
+    assert "skills/sample" in compact and "Problem:" in compact and "Suggested fix:" in compact
+    if with_diagnostic:
+        assert "Semgrep timed out after 30 seconds" in visible_markdown(compact)
+    else:
+        assert "incomplete" in compact.lower()
+
+
+def test_compact_failed_validator_without_recorded_findings_still_has_action(tmp_path):
+    summary, _ = example(tmp_path, result={"validator": "Scanner", "status": "failed", "passed": False})
+    views.render_reports(tmp_path, summary, {})
+    text = (tmp_path / "summary.md").read_text()
+    assert "FAILED" in compact_header(text) and "skills/sample" in text
+    assert "without a recorded reason" in text and "Suggested fix:" in text
+
+
+def test_compact_configuration_error_is_not_green_and_has_artifact_fallback(tmp_path):
+    summary = {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "incomplete": 0,
+        "overall_status": "error",
+        "error": "No skill directories configured",
+        "skills": [],
+    }
+    views.render_reports(tmp_path, summary, {"run_url": "https://github.com/o/r/actions/runs/1"})
+    compact = (tmp_path / "summary.md").read_text()
+    assert compact_header(compact) == "**Tier 1 scan result: ERROR**"
+    assert "No skill directories configured" in compact and "configuration" in compact
+    assert "artifact" in compact and "index.html" in compact
+    assert "https://github.com/o/r/actions/runs/1" in compact
+    assert "No blocking issues found" not in compact
+
+
+def test_compact_lists_at_most_five_affected_skills_with_explicit_remainder(tmp_path):
+    summary, data = example(tmp_path, result=failed_result())
+    rows = []
+    for index in range(1, 9):
+        directory = tmp_path / f"skill-{index:03d}"
+        directory.mkdir(exist_ok=True)
+        child = copy.deepcopy(data)
+        child["results"][0]["findings"][0]["file_path"] = f"skills/broken-{index}/SKILL.md"
+        (directory / "skillevaluator-tier1.json").write_text(json.dumps(child))
+        rows.append(
+            {
+                "path": f"skills/broken-{index}",
+                "report_dir": directory.name,
+                "overall_status": "failed",
+                "passed": False,
+            }
+        )
+    summary.update(total=8, passed=0, failed=8, incomplete=0, skills=rows)
+    views.render_reports(tmp_path, summary, {})
+    text = visible_markdown((tmp_path / "summary.md").read_text())
+    for index in range(1, 6):
+        assert f"skills/broken-{index}" in text
+    for index in range(6, 9):
+        assert f"skills/broken-{index}" not in text
+    assert re.search(r"3 (?:more|additional) affected skills", text)
+    assert "8 skills · 0 passed · 8 failed · 0 incomplete" in text
+
+
+@pytest.mark.parametrize("kind", ["missing", "contradictory_child", "rollup_counts"])
+def test_compact_unproven_evidence_never_claims_pass(tmp_path, kind):
+    summary, data = example(tmp_path)
+    if kind == "missing":
+        (tmp_path / "skill-001/skillevaluator-tier1.json").unlink()
+    elif kind == "contradictory_child":
+        data["results"][0].update(status="failed", passed=False)
+        (tmp_path / "skill-001/skillevaluator-tier1.json").write_text(json.dumps(data))
+    else:
+        summary.update(total=999, passed=999)
+    views.render_reports(tmp_path, summary, {})
+    text = (tmp_path / "summary.md").read_text()
+    assert "PASSED" not in compact_header(text)
+    assert "missing or inconsistent" in text
+    assert "1 skills" in text
+    if kind != "rollup_counts":
+        assert "skills/sample" in text and "Problem:" in text and "Suggested fix:" in text
+
+
+def test_compact_large_untrusted_fields_stay_bounded_and_useful(tmp_path):
+    result = failed_result(
+        message="Priority finding " + "界" * 50000,
+        suggestion="Recorded fix " + "界" * 50000,
+        path="skills/sample/SKILL.md" + "界" * 50000,
+    )
+    summary, data = example(tmp_path, result=result)
+    data["workflow"]["stages"]["llm"]["reason"] = "Large reason " + "界" * 50000
+    (tmp_path / "skill-001/skillevaluator-tier1.json").write_text(json.dumps(data))
+    views.render_reports(tmp_path, summary, {"report_url": "https://example.com/full"})
+    text = (tmp_path / "summary.md").read_text()
+    assert len(text.encode()) <= 20 * 1024
+    assert "FAILED" in compact_header(text) and "skills/sample" in text
+    assert "Priority finding" in text and "Recorded fix" in text
+    assert "https://example.com/full/index.html" in text
+    assert "界" * 50000 not in text
+
+
+def test_compact_adversarial_failure_fields_render_as_text(tmp_path):
+    from markdown_it import MarkdownIt
+
+    attack = "<script>alert(1)</script> [escape](javascript:alert(1)) @some-org/team |\n## forged"
+    summary, _ = example(tmp_path, result=failed_result(message=attack, suggestion=attack, path=attack))
+    views.render_reports(tmp_path, summary, {"run_url": "javascript:alert(1)", "report_url": "data:text/html,x"})
+    text = (tmp_path / "summary.md").read_text()
+    rendered = MarkdownIt("commonmark").enable("table").render(text)
+    assert "<script" not in rendered and 'href="javascript:' not in rendered and 'href="data:' not in rendered
+    assert "<h2>forged" not in rendered
+    assert "@some-org" not in visible_markdown(text) and "@\u200bsome-org" in visible_markdown(text)
+    assert "&lt;script&gt;" in text
+
+
+@pytest.mark.parametrize(
+    "field,folder,normalize",
+    [("name", "valid-folder", True), ("description", "valid-folder", False), ("name", "INVALID FOLDER", False)],
+)
+def test_compact_concrete_name_replacement_requires_exact_known_evidence(tmp_path, field, folder, normalize):
+    canonical = "Field 'name': Value error, Skill name 'INVALID NAME' must be in kebab-case format (lowercase letters, numbers, and hyphens only, starting with a letter)"
+    result = failed_result(message=canonical, suggestion="Recorded suggestion")
+    result["findings"][0]["metadata"] = {"field": field}
+    summary, _ = example(tmp_path, result=result)
+    summary["skills"][0]["path"] = "skills/" + folder
+    views.render_reports(tmp_path, summary, {})
+    text = visible_markdown((tmp_path / "summary.md").read_text())
+    if normalize:
+        assert "name: valid-folder" in text and "match the skill directory" in text
+    else:
+        assert "Recorded suggestion" in text and "Set name:" not in text
+
+
+def test_compact_near_matching_name_error_keeps_recorded_fix(tmp_path):
+    canonical = "Field 'name': Value error, Skill name 'INVALID NAME' must be in kebab-case format (lowercase letters, numbers, and hyphens only, starting with a letter)"
+    result = failed_result(message=canonical + " Additional diagnostic context.", suggestion="Recorded suggestion")
+    result["findings"][0]["metadata"] = {"field": "name"}
+    summary, _ = example(tmp_path, result=result)
+    views.render_reports(tmp_path, summary, {})
+    text = visible_markdown((tmp_path / "summary.md").read_text())
+    assert "Recorded suggestion" in text and "Set name:" not in text
+
+
+def test_compact_percent_encoded_huge_hosted_url_preserves_headline_and_bound(tmp_path):
+    summary, _ = example(tmp_path)
+    hosted = "https://example.com/reports/" + "€" * 3000
+    views.render_reports(tmp_path, summary, {"report_url": hosted})
+    compact = (tmp_path / "summary.md").read_text()
+    assert len(compact.encode()) <= 20 * 1024
+    assert compact_header(compact) == "**Tier 1 scan result: PASSED**"
+    assert "1 skills · 1 passed · 0 failed · 0 incomplete" in compact
+    assert "Tier 2: Not run" in compact and "Tier 3: Not run" in compact
+    assert "artifact" in compact.lower() and "index.html" in compact
+    assert "%E2%82%AC" * 3000 not in compact
+
+
+def test_compact_without_hosted_url_has_one_artifact_instruction(tmp_path):
+    summary, _ = example(tmp_path)
+    views.render_reports(tmp_path, summary, {})
+    compact = (tmp_path / "summary.md").read_text()
+    assert compact.lower().count("artifact") == 1
+    assert "scan" in compact.lower() and "download" in compact.lower() and "index.html" in compact
