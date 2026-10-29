@@ -1,0 +1,11 @@
+name: Fork OIDC permissions probe
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+jobs:
+  permissions:
+    uses: chrisknvidia/SkillEvaluator-ci-demo/.github/workflows/fork-oidc-reusable.yml@ac17ddc5fb1450988b1dfb56858d48fa0fe267ff
