@@ -1,0 +1,33 @@
+name: Reusable fork OIDC permission probe
+on:
+  workflow_call:
+jobs:
+  permission-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Observe permissions without requesting an identity token
+        env:
+          PROBE_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PROBE_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+          PROBE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          node <<'NODE'
+          const receipt = {
+            event_name: process.env.GITHUB_EVENT_NAME,
+            repository: process.env.GITHUB_REPOSITORY,
+            head_repository: process.env.PROBE_HEAD_REPO,
+            base_repository: process.env.PROBE_BASE_REPO,
+            workflow_sha: process.env.PROBE_WORKFLOW_SHA,
+            oidc_url_available: Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL),
+            oidc_credential_available: Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN),
+            job_ran: true,
+          };
+          console.log(JSON.stringify(receipt, null, 2));
+          if (receipt.head_repository === receipt.base_repository) throw new Error('Not a cross-repository PR');
+          if (receipt.oidc_url_available || receipt.oidc_credential_available) {
+            console.log('OIDC is available under this repository policy. No token was requested.');
+          } else {
+            console.log('OIDC is unavailable. The job still ran with inherited read-only permissions.');
+          }
+          NODE
