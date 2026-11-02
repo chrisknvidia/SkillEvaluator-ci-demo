@@ -163,6 +163,8 @@ All notable changes to SkillEvaluator are documented in this file.
 
 ### Fixed
 
+- Hosted CI reports identify GitHub Pages deployments by the retained site
+  revision so repeated scans on an unchanged default branch publish fresh reports.
 - CI quality thresholds apply to every parallel scan worker. Report overviews
   and detailed reports surface failed quality gates ahead of advisory findings,
   with links to the check that needs attention.
