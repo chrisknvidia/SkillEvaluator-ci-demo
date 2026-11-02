@@ -167,6 +167,12 @@ jobs:
           ref: gh-pages
           path: site
           persist-credentials: false
+      - name: Identify the retained site revision
+        id: site
+        # workflow_run events share the default-branch SHA. Pages uses its
+        # build SHA as deployment identity, so use the retained site revision.
+        run: |
+          echo "revision=$(git -C site rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Package the static report site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -174,6 +180,8 @@ jobs:
       - name: Deploy the static report site
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        env:
+          GITHUB_SHA: ${{ steps.site.outputs.revision }}
   comment:
     needs: [prepare, deploy]
     # Comment only after this run's own deploy. A skipped deploy means another
