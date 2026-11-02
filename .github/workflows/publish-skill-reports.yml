@@ -203,8 +203,9 @@ jobs:
             }
             core.info(`Pages build revision: ${revision}`);
             let completed = false;
+            const deadline = Date.now() + 300000;
             try {
-              for (let attempt = 0; attempt < 60; attempt++) {
+              for (let attempt = 0; attempt < 60 && Date.now() < deadline; attempt++) {
                 const {data: status} = await github.request('GET /repos/{owner}/{repo}/pages/deployments/{deployment_id}', {
                   ...context.repo, deployment_id: revision, request: {timeout: 30000}
                 });
