@@ -138,12 +138,17 @@ jobs:
           if not re.fullmatch(r"ghcr\.io/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}", os.environ["IMAGE"]):
               raise SystemExit("image must be a published GHCR image pinned to its sha256 digest")
           PY
-      - name: Pull the published image without registry credentials
+      # Sandbox transport only: the test image is private to the consumer fork.
+      - name: Pull the private pilot image
         env:
           IMAGE: ${{ inputs.image }}
+          GHCR_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/anonymous-docker-config"
-          docker --config "$RUNNER_TEMP/anonymous-docker-config" pull "$IMAGE"
+          export DOCKER_CONFIG="$RUNNER_TEMP/private-pilot-docker-config"
+          mkdir -p "$DOCKER_CONFIG"
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$IMAGE"
       - name: Evaluate selected skills
         env:
           ENFORCEMENT_MODE: ${{ inputs.enforcement-mode }}
